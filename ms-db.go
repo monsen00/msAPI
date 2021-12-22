@@ -17,26 +17,17 @@ type IDBAccess interface {
 }
 
 type dbaccess struct {
-	conn *sql.DB
-	tran *sql.Tx
+	connStr string
+	db      *sql.DB
+	tran    *sql.Tx
 }
 
-func DBAccess(path string) (IDBAccess, error) {
-	db, err := sql.Open("mysql", path)
-	if err != nil {
-		return nil, err
-	}
-
-	db.SetConnMaxLifetime(10)
-	db.SetMaxIdleConns(5)
-	if err := db.Ping(); err != nil {
-		return nil, err
-	}
-
+func DBAccess(path string) IDBAccess {
 	return &dbaccess{
-		conn: db,
-		tran: nil,
-	}, nil
+		connStr: path,
+		db:      nil,
+		tran:    nil,
+	}
 }
 
 func DefaultConnStr() string {
@@ -46,13 +37,17 @@ func DefaultConnStr() string {
 	}
 	return path
 }
-
 func ConnStr(uname, pwd, ip, port, dbName string) string {
 	return fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8", uname, pwd, ip, port, dbName)
 }
 
-func (db *dbaccess) Query(sql string) (*sql.Rows, error) {
-	stat, err := db.conn.Prepare(sql)
+func (dba *dbaccess) Query(sql string) (*sql.Rows, error) {
+	err := dba.connect()
+	if err != nil {
+		return nil, err
+	}
+
+	stat, err := dba.db.Prepare(sql)
 	if err != nil {
 		return nil, err
 	}
@@ -65,8 +60,13 @@ func (db *dbaccess) Query(sql string) (*sql.Rows, error) {
 
 	return rows, nil
 }
-func (db *dbaccess) QuerySingle(sql string) (*sql.Row, error) {
-	stat, err := db.conn.Prepare(sql)
+func (dba *dbaccess) QuerySingle(sql string) (*sql.Row, error) {
+	err := dba.connect()
+	if err != nil {
+		return nil, err
+	}
+
+	stat, err := dba.db.Prepare(sql)
 	if err != nil {
 		return nil, err
 	}
@@ -75,14 +75,19 @@ func (db *dbaccess) QuerySingle(sql string) (*sql.Row, error) {
 	row := stat.QueryRow()
 	return row, nil
 }
-func (db *dbaccess) Exec(sql string) (sql.Result, error) {
-	err := db.setTransition()
+func (dba *dbaccess) Exec(sql string) (sql.Result, error) {
+	err := dba.connect()
+	if err != nil {
+		return nil, err
+	}
+
+	err = dba.setTrans()
 	if err != nil {
 		return nil, err
 	}
 
 	//对SQL语句进行预处理
-	stmt, err := db.conn.Prepare(sql)
+	stmt, err := dba.db.Prepare(sql)
 	if err != nil {
 		return nil, err
 	}
@@ -95,23 +100,46 @@ func (db *dbaccess) Exec(sql string) (sql.Result, error) {
 
 	return result, nil
 }
-func (db *dbaccess) SaveChange() {
-	if db.tran != nil {
-		db.tran.Commit()
-		db.tran = nil
+func (dba *dbaccess) SaveChange() {
+	if dba.tran != nil {
+		dba.tran.Commit()
+		dba.tran = nil
 	}
 }
-func (db *dbaccess) Close() {
-	db.conn.Close()
+func (dba *dbaccess) Close() {
+	if dba.db != nil {
+		dba.db.Close()
+		dba.db = nil
+	}
 }
 
-func (db *dbaccess) setTransition() error {
-	if db.tran == nil {
-		tx, err := db.conn.Begin()
+func (dba *dbaccess) connect() error {
+	if dba.db != nil {
+		return nil
+	}
+
+	db, err := sql.Open("mysql", dba.connStr)
+	if err != nil {
+		return err
+	}
+
+	db.SetConnMaxLifetime(10)
+	db.SetMaxIdleConns(5)
+	if err := db.Ping(); err != nil {
+		db.Close()
+		return err
+	}
+
+	dba.db = db
+	return nil
+}
+func (dba *dbaccess) setTrans() error {
+	if dba.tran == nil {
+		tx, err := dba.db.Begin()
 		if err != nil {
 			return err
 		}
-		db.tran = tx
+		dba.tran = tx
 	}
 
 	return nil
