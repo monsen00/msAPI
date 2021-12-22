@@ -7,7 +7,7 @@ import (
 	"github.com/dgrijalva/jwt-go"
 )
 
-type MsJWT interface {
+type IMsJWT interface {
 	GenerateToken(claims jwt.Claims) string
 	GetClaims(claims jwt.Claims, tokenStr string) error
 	VerifyToken(tokenStr string) (*jwt.Token, error)
@@ -16,13 +16,13 @@ type msJWT struct {
 	secret string
 }
 
-func NewJWT(secret string) MsJWT {
+func MsJWT(secret string) IMsJWT {
 	return &msJWT{
 		secret: secret,
 	}
 }
 
-func GetJWTDefaultSecret() string {
+func DefaultSecret() string {
 	secret := os.Getenv("jwt-secretKey")
 	if secret == "" {
 		secret = "jwt-secretKey"
